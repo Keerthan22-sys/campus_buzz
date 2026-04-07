@@ -1,52 +1,66 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import PostForm from "./components/PostForm";
 import PostList from "./components/PostList";
+import { fetchPosts, createPost, deletePost } from "./services/api";
 
 function App() {
-  const [posts, setPosts] = useState([
-    {
-      id: 1,
-      title: "Welcome to Campus Buzz!",
-      content: "This is the student bulletin board for RVITM. Share announcements, events, and updates!",
-      category: "General",
-      timestamp: new Date().toISOString(),
-    },
-  ]);
-
+  const [posts, setPosts] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("All");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Add a new post
-  const addPost = (newPost) => {
-    const post = {
-      id: Date.now(), // Simple unique ID
-      ...newPost,
-      timestamp: new Date().toISOString(),
-    };
-    setPosts([post, ...posts]); // Add to beginning (newest first)
-  };
-
-  // Delete a post
-  const deletePost = (id) => {
-    if (window.confirm("Are you sure you want to delete this post?")) {
-      setPosts(posts.filter((post) => post.id !== id));
+  // ── Fetch posts from API ──
+  const loadPosts = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await fetchPosts(filterCategory, searchTerm);
+      setPosts(data);
+    } catch (err) {
+      setError(err.message);
+      console.error("Failed to fetch posts:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Filter posts based on search and category
-  const filteredPosts = posts.filter((post) => {
-    const matchesSearch =
-      post.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      post.content.toLowerCase().includes(searchTerm.toLowerCase());
+  // Load posts on mount AND when filters change
+  useEffect(() => {
+    loadPosts();
+  }, [filterCategory, searchTerm]);
 
-    const matchesCategory =
-      filterCategory === "All" || post.category === filterCategory;
+  // ── Add a new post ──
+  const handleAddPost = async (newPostData) => {
+    try {
+      setError(null);
+      await createPost(newPostData);
+      await loadPosts(); // Refresh the list from the server
+    } catch (err) {
+      setError(err.message);
+      alert("Failed to create post: " + err.message);
+    }
+  };
 
-    return matchesSearch && matchesCategory;
-  });
+  // ── Delete a post ──
+  const handleDeletePost = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this post?")) return;
+
+    try {
+      setError(null);
+      await deletePost(id);
+      await loadPosts(); // Refresh the list from the server
+    } catch (err) {
+      setError(err.message);
+      alert("Failed to delete post: " + err.message);
+    }
+  };
 
   // Get unique categories for the filter dropdown
-  const categories = ["All", ...new Set(posts.map((p) => p.category))];
+  const categories = [
+    "All", "General", "Events", "Academic",
+    "Placement", "Sports", "Tech", "Lost & Found",
+  ];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -58,13 +72,27 @@ function App() {
           </h1>
           <p className="text-gray-500 text-sm mt-1">
             RVITM Student Bulletin Board • {posts.length} posts
+            {!loading && <span className="text-green-500 ml-2">● Connected to server</span>}
           </p>
         </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-6">
+        {/* Error Banner */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 flex justify-between items-center">
+            <span className="text-red-600 text-sm">❌ {error}</span>
+            <button
+              onClick={() => setError(null)}
+              className="text-red-400 hover:text-red-600"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Post Form */}
-        <PostForm onSubmit={addPost} />
+        <PostForm onSubmit={handleAddPost} />
 
         {/* Search and Filter Bar */}
         <div className="flex flex-col sm:flex-row gap-3 my-6">
@@ -86,17 +114,30 @@ function App() {
               </option>
             ))}
           </select>
+          <button
+            onClick={loadPosts}
+            className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition"
+          >
+            🔄 Refresh
+          </button>
         </div>
 
         {/* Results count */}
         <p className="text-sm text-gray-400 mb-3">
-          Showing {filteredPosts.length} of {posts.length} posts
+          Showing {posts.length} posts
           {searchTerm && ` matching "${searchTerm}"`}
           {filterCategory !== "All" && ` in ${filterCategory}`}
         </p>
 
-        {/* Post List */}
-        <PostList posts={filteredPosts} onDelete={deletePost} />
+        {/* Loading State */}
+        {loading ? (
+          <div className="text-center py-12">
+            <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto"></div>
+            <p className="mt-3 text-gray-500">Loading posts from server...</p>
+          </div>
+        ) : (
+          <PostList posts={posts} onDelete={handleDeletePost} />
+        )}
       </main>
     </div>
   );
